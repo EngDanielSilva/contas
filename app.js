@@ -25,6 +25,8 @@ const END_VIEW   = { year: 2027, monthIndex: 3 };   // abr/2027
 // (contrato/seguro 12 meses; meses fora ficam em branco)
 const ACTIVE_START = { year: 2026, monthIndex: 2 }; // mar/2026
 const ACTIVE_END   = { year: 2027, monthIndex: 1 }; // fev/2027
+const RENT_START = { year: 2026, monthIndex: 3 }; // abril/2026
+const RENT_END   = { year: 2027, monthIndex: 2 }; // março/2027
 
 const DUE_DAY = 3;
 
@@ -131,7 +133,11 @@ function buildRows(){
         row.bond = (activeIndex >= 0 && activeIndex < BOND_INSTALLMENTS) ? BOND_PER_PERSON : 0;
 
         // Aluguel: durante todo período ativo
-        row.rent = RENT_BY_PERSON[person] ?? 0;
+        if (inRange(cursor, RENT_START, RENT_END)){
+          row.rent = RENT_BY_PERSON[person] ?? 0;
+        } else {
+          row.rent = 0;
+        }
       }
 
       row.total = (row.isBlank)
@@ -347,7 +353,7 @@ function wireCheckboxes(){
     });
   });
 
-  
+
 }
 
 
