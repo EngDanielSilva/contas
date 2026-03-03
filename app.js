@@ -213,85 +213,162 @@ function render(){
   });
 
   for (const r of visible){
+
     const tr = document.createElement("tr");
+
     if(r.person === "DANIEL") tr.classList.add("row-daniel");
     if(r.person === "FIALHO") tr.classList.add("row-fialho");
     if(r.person === "JOSEMAR") tr.classList.add("row-josemar");
-    const isPaid = !!PAID[r.id];
 
-    if (r.isBlank) tr.classList.add("row-blank");
-    if (isPaid && !r.isBlank) tr.classList.add("row-paid");
+    if (r.isBlank){
+      tr.innerHTML = `
+        <td><span class="badge blank">${r.monthLabel}</span></td>
+        <td>${r.person}</td>
+        <td colspan="9"></td>
+      `;
+      tableBody.appendChild(tr);
+      continue;
+    }
+
+    const paidObj = PAID[r.id] || { fire:false, bond:false, rent:false };
+
+    let paidAmount = 0;
+    if(paidObj.fire) paidAmount += r.fire;
+    if(paidObj.bond) paidAmount += r.bond;
+    if(paidObj.rent) paidAmount += r.rent;
+
+    const remaining = round2(r.total - paidAmount);
+    const isFullPaid = remaining === 0;
 
     tr.innerHTML = `
-      <td>
-        <span class="badge ${r.isBlank ? "blank" : ""}">${r.monthLabel}</span>
-      </td>
+      <td><span class="badge">${r.monthLabel}</span></td>
       <td><b>${r.person}</b></td>
-      <td class="money ${r.isBlank ? "blank" : ""}">${r.isBlank ? "" : moneyBR(r.fire)}</td>
-      <td class="money ${r.isBlank ? "blank" : ""}">${r.isBlank ? "" : moneyBR(r.bond)}</td>
-      <td class="money ${r.isBlank ? "blank" : ""}">${r.isBlank ? "" : moneyBR(r.rent)}</td>
-      <td class="total">${r.isBlank ? "" : moneyBR(r.total)}</td>
+
+      <td class="money">${moneyBR(r.fire)}</td>
       <td class="center">
-        ${
-          r.isBlank
-            ? ""
-            : `<input class="checkbox" type="checkbox"
-                 ${isPaid ? "checked" : ""}
-                 data-id="${r.id}"
-                 ${IS_ADMIN ? "" : 'data-locked="true"'}>
-               `
-        }
+        <input type="checkbox" class="item-check"
+          data-id="${r.id}" data-type="fire"
+          ${paidObj.fire ? "checked" : ""}
+          ${IS_ADMIN ? "" : 'data-locked="true"'}
+        >
+      </td>
+
+      <td class="money">${moneyBR(r.bond)}</td>
+      <td class="center">
+        <input type="checkbox" class="item-check"
+          data-id="${r.id}" data-type="bond"
+          ${paidObj.bond ? "checked" : ""}
+          ${IS_ADMIN ? "" : 'data-locked="true"'}
+        >
+      </td>
+
+      <td class="money">${moneyBR(r.rent)}</td>
+      <td class="center">
+        <input type="checkbox" class="item-check"
+          data-id="${r.id}" data-type="rent"
+          ${paidObj.rent ? "checked" : ""}
+          ${IS_ADMIN ? "" : 'data-locked="true"'}
+        >
+      </td>
+
+      <td class="total">${moneyBR(r.total)}</td>
+      <td class="money">${moneyBR(remaining)}</td>
+
+      <td class="center">
+        <input type="checkbox" class="total-check"
+          data-id="${r.id}"
+          ${isFullPaid ? "checked" : ""}
+          ${IS_ADMIN ? "" : 'data-locked="true"'}
+        >
       </td>
     `;
+
+    if(isFullPaid) tr.classList.add("row-paid");
 
     tableBody.appendChild(tr);
   }
 
   wireCheckboxes();
   renderSummary(visible);
-
-  if (adminHint){
-    adminHint.textContent = IS_ADMIN
-      ? "Modo admin ativo • Você pode marcar pago"
-      : "Consulta livre • Edição bloqueada";
-  }
 }
 
 
 function wireCheckboxes(){
-  const checks = document.querySelectorAll(".checkbox");
 
-  checks.forEach(ch => {
+  document.querySelectorAll(".item-check").forEach(ch => {
     ch.addEventListener("click", async (e) => {
 
-      // Se não for admin, impede visualmente a troca
       if(!IS_ADMIN){
         e.preventDefault();
         return;
       }
 
-      const id = e.target.getAttribute("data-id");
-      PAID[id] = e.target.checked;
+      const id = ch.dataset.id;
+      const type = ch.dataset.type;
+
+      if(!PAID[id]){
+        PAID[id] = { fire:false, bond:false, rent:false };
+      }
+
+      PAID[id][type] = ch.checked;
 
       try{
         await savePaidToServer(PAID);
         render();
       }catch(err){
-        alert("Não consegui salvar na base compartilhada.\n" + err.message);
-        PAID[id] = !PAID[id];
-        render();
+        alert("Erro ao salvar.");
       }
     });
   });
+
+  document.querySelectorAll(".total-check").forEach(ch => {
+    ch.addEventListener("click", async () => {
+
+      if(!IS_ADMIN){
+        ch.checked = !ch.checked;
+        return;
+      }
+
+      const id = ch.dataset.id;
+      const checked = ch.checked;
+
+      PAID[id] = {
+        fire: checked,
+        bond: checked,
+        rent: checked
+      };
+
+      try{
+        await savePaidToServer(PAID);
+        render();
+      }catch(err){
+        alert("Erro ao salvar.");
+      }
+    });
+  });
+
 }
 
 
 function renderSummary(visibleRows){
-  const nonBlank = visibleRows.filter(r => !r.isBlank);
-  const totalAll = round2(nonBlank.reduce((acc, r) => acc + (r.total ?? 0), 0));
 
-  const paidRows = nonBlank.filter(r => !!PAID[r.id]);
-  const totalPaid = round2(paidRows.reduce((acc, r) => acc + (r.total ?? 0), 0));
+  const nonBlank = visibleRows.filter(r => !r.isBlank);
+
+  const totalAll = round2(
+    nonBlank.reduce((acc, r) => acc + (r.total ?? 0), 0)
+  );
+
+  let totalPaid = 0;
+
+  for(const r of nonBlank){
+    const paidObj = PAID[r.id] || { fire:false, bond:false, rent:false };
+
+    if(paidObj.fire) totalPaid += r.fire;
+    if(paidObj.bond) totalPaid += r.bond;
+    if(paidObj.rent) totalPaid += r.rent;
+  }
+
+  totalPaid = round2(totalPaid);
 
   const open = round2(totalAll - totalPaid);
 
@@ -391,12 +468,10 @@ btnExport.addEventListener("click", exportCSV);
 // Modo admin (se o bloco existir)
 btnAdmin.addEventListener("click", async () => {
   const v = (adminKeyInput.value || "").trim();
-
   ADMIN_KEY_TYPED = v;
 
-  // Teste simples tentando salvar vazio
   try{
-    await fetch(API_SET_STATUS, {
+    const res = await fetch(API_SET_STATUS, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -405,6 +480,10 @@ btnAdmin.addEventListener("click", async () => {
       body: JSON.stringify({ paid: PAID })
     });
 
+    if(!res.ok){
+      throw new Error("Unauthorized");
+    }
+
     IS_ADMIN = true;
     adminHint.textContent = "Modo admin ativo • Você pode marcar pago";
     render();
@@ -412,9 +491,9 @@ btnAdmin.addEventListener("click", async () => {
   }catch{
     IS_ADMIN = false;
     adminHint.textContent = "Chave incorreta • Edição bloqueada";
+    render();
   }
 });
-
 
 /* -----------------------------------------------------------
    START
